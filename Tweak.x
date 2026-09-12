@@ -1,99 +1,78 @@
-#import <UIKit/UIKit.h>
 #import <AVFoundation/AVFoundation.h>
-#import <objc/runtime.h>
-#import <objc/message.h>
+#import <UIKit/UIKit.h>
 
-static BOOL gMuted = YES;
-static UIButton *gButton;
+// Global variable to track whether TikTok videos should be muted
+static BOOL isTikTokMuted = NO;
 
-static BOOL IsTikTok(void) {
-    NSString *bid = NSBundle.mainBundle.bundleIdentifier ?: @"";
-    return [bid rangeOfString:@"musically" options:NSCaseInsensitiveSearch].location != NSNotFound ||
-           [bid rangeOfString:@"tiktok" options:NSCaseInsensitiveSearch].location != NSNotFound;
+// 1. SYSTEM AUDIO HOOK: Stop TikTok from ever hijacking background music
+%hook AVAudioSession
+- (BOOL)setCategory:(NSString *)category error:(NSError **)outError {
+    if ([category isEqualToString:@"AVAudioSessionCategorySoloAmbient"] || 
+        [category isEqualToString:@"AVAudioSessionCategoryPlayback"]) {
+        return %orig(@"AVAudioSessionCategoryAmbient", outError);
+    }
+    return %orig(category, outError);
 }
 
-static void ApplyMuteToObject(id obj) {
-    if (!obj || !gMuted) return;
-    @try {
-        if ([obj respondsToSelector:@selector(setMuted:)]) ((void (*)(id, SEL, BOOL))objc_msgSend)(obj, @selector(setMuted:), YES);
-        if ([obj respondsToSelector:@selector(setVolume:)]) ((void (*)(id, SEL, float))objc_msgSend)(obj, @selector(setVolume:), 0.0f);
-        if ([obj respondsToSelector:@selector(setOutputVolume:)]) ((void (*)(id, SEL, float))objc_msgSend)(obj, @selector(setOutputVolume:), 0.0f);
-    } @catch (__unused NSException *e) {}
+- (BOOL)setCategory:(NSString *)category withOptions:(NSUInteger)options error:(NSError **)outError {
+    if ([category isEqualToString:@"AVAudioSessionCategorySoloAmbient"] || 
+        [category isEqualToString:@"AVAudioSessionCategoryPlayback"]) {
+        return %orig(@"AVAudioSessionCategoryAmbient", options | 1, outError); // 1 = MixWithOthers
+    }
+    return %orig(category, options, outError);
 }
+%end
 
-static void ToggleMute(void) {
-    gMuted = !gMuted;
-    [gButton setTitle:(gMuted ? @"UNMUTE" : @"MUTE") forState:UIControlStateNormal];
-    [[NSNotificationCenter defaultCenter] postNotificationName:@"TikTokMuteAudioChanged" object:nil userInfo:@{@"muted": @(gMuted)}];
-}
-
-static void InstallButton(void) {
-    if (!IsTikTok() || gButton) return;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        if (gButton) return;
-        UIWindow *window = nil;
-        for (UIWindow *w in UIApplication.sharedApplication.windows) {
-            if (!w.hidden && w.alpha > 0.01 && w.windowLevel == UIWindowLevelNormal) { window = w; break; }
-        }
-        if (!window) return;
-
-        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
-        button.frame = CGRectMake(window.bounds.size.width - 110.0, 95.0, 96.0, 42.0);
-        button.autoresizingMask = UIViewAutoresizingFlexibleLeftMargin;
-        button.backgroundColor = [UIColor colorWithWhite:0 alpha:0.72];
-        button.layer.cornerRadius = 10.0;
-        [button setTitle:(gMuted ? @"UNMUTE" : @"MUTE") forState:UIControlStateNormal];
-        [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
-        button.titleLabel.font = [UIFont boldSystemFontOfSize:15.0];
-        [button addTarget:[NSBlockOperation blockOperationWithBlock:^{ ToggleMute(); }] action:@selector(main) forControlEvents:UIControlEventTouchUpInside];
-        [window addSubview:button];
-        gButton = button;
-    });
-}
-
-%hook AVPlayer
-- (void)play {
-    %orig;
-    if (gMuted) {
-        self.muted = YES;
-        self.volume = 0.0f;
+// 2. VIDEO PLAYER HOOK: Override video volume based on our button status
+%hook NOVVideoPlayer 
+- (void)setVolume:(float)volume {
+    if (isTikTokMuted) {
+        %orig(0.0f); // Force video silence
+    } else {
+        %orig(volume); // Let regular sound play if unmuted
     }
 }
-- (void)setMuted:(BOOL)muted {
-    %orig(gMuted ? YES : muted);
-}
-- (void)setVolume:(float)volume {
-    %orig(gMuted ? 0.0f : volume);
-}
 %end
 
-%hook AVAudioPlayer
-- (void)play {
+// 3. UI BUTTON HOOK: Inject a floating mute overlay button into the main feed view
+%hook UIViewController
+- (void)viewDidAppear:(BOOL)animated {
     %orig;
-    if (gMuted) self.volume = 0.0f;
+
+    // Verify if we are looking at the main TikTok feed controller
+    NSString *className = NSStringFromClass([self class]);
+    if ([className containsString:@"Aweme"] || [className containsString:@"Feed"]) {
+        
+        // Prevent duplicate buttons from drawing on screen
+        if ([self.view viewWithTag:999]) return;
+
+        // Draw a clean, small floating button in the upper corner
+        UIButton *muteButton = [UIButton buttonWithType:UIButtonTypeCustom];
+        muteButton.frame = CGRectMake(20, 60, 45, 45); // Adjust dimensions safely below the status bar
+        muteButton.layer.cornerRadius = 22.5;
+        muteButton.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.6];
+        muteButton.tag = 999;
+        
+        // Use standard system emojis as visual labels
+        [muteButton setTitle:@"🔊" forState:UIControlStateNormal];
+        [muteButton addTarget:self action:@selector(toggleTikTokMuteState:) forControlEvents:UIControlEventTouchUpInside];
+        
+        [self.view addSubview:muteButton];
+        [self.view bringSubviewToFront:muteButton];
+    }
 }
-- (void)setVolume:(float)volume {
-    %orig(gMuted ? 0.0f : volume);
+
+// Add the custom click action method to the controller runtime
+%new
+- (void)toggleTikTokMuteState:(UIButton *)sender {
+    isTikTokMuted = !isTikTokMuted;
+    
+    if (isTikTokMuted) {
+        [sender setTitle:@"🔇" forState:UIControlStateNormal];
+        sender.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.6];
+    } else {
+        [sender setTitle:@"🔊" forState:UIControlStateNormal];
+        sender.backgroundColor = [[UIColor blackColor] colorWithAlphaComponent:0.6];
+    }
 }
 %end
-
-%hook AVAudioPlayerNode
-- (void)play {
-    %orig;
-    ApplyMuteToObject(self);
-}
-%end
-
-%hook AVAudioMixerNode
-- (void)setOutputVolume:(float)volume {
-    %orig(gMuted ? 0.0f : volume);
-}
-%end
-
-%ctor {
-    if (!IsTikTok()) return;
-    gMuted = YES;
-    InstallButton();
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ InstallButton(); });
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(3 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{ InstallButton(); });
-}
