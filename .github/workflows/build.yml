@@ -1,39 +1,29 @@
-name: Build TikTokMuteAudio
+name: Build Sideloadable Tweak
 
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-      - name: Install Theos
-        run: |
-          git clone --depth=1 --recurse-submodules https://github.com/theos/theos.git "$GITHUB_WORKSPACE/theos"
-          echo "THEOS=$GITHUB_WORKSPACE/theos" >> "$GITHUB_ENV"
-          brew install ldid
-          git clone --depth=1 https://github.com/theos/sdks.git /tmp/sdks
-          mkdir -p "$GITHUB_WORKSPACE/theos/sdks"
-          cp -R /tmp/sdks/iPhoneOS16.5.sdk "$GITHUB_WORKSPACE/theos/sdks/"
-          test -x "$GITHUB_WORKSPACE/theos/bin/dm.pl"
+    - name: Set up Theos and SDKs
+      run: |
+        bash -c "$(curl -fsSL https://githubusercontent.com)"
+        git clone https://github.com ~/theos/sdks --depth 1
 
-      - name: Build
-        run: |
-          export THEOS="$GITHUB_WORKSPACE/theos"
-          make clean package FINALPACKAGE=1
+    - name: Build Raw Tweak File
+      run: |
+        export THEOS=~/theos
+        # Run make to compile the raw binary files without making a deb package
+        make FINALPACKAGE=1
 
-      - name: Verify package
-        run: |
-          ls -lh packages/
-          test -n "$(find packages -name '*.deb' -print -quit)"
-
-      - name: Upload package
-        uses: actions/upload-artifact@v4
-        with:
-          name: TikTokMuteAudio-build
-          path: packages/*.deb
+    - name: Upload Raw Tweak File
+      uses: actions/upload-artifact@v4
+      with:
+        name: TikTokMuteAudio-Sideload
+        path: .theos/obj/debug/TikTokMuteAudio.dylib
