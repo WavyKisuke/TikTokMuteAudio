@@ -13,8 +13,8 @@ jobs:
 
     - name: Set up Theos and SDKs
       run: |
-        bash -c "$(curl -fsSL https://githubusercontent.com)"
-        git clone https://github.com ~/theos/sdks --depth 1
+        git clone --recursive https://github.com/theos/theos.git ~/theos
+        git clone --depth 1 https://github.com/theos/sdks.git ~/theos/sdks
 
     - name: Build Raw Tweak File
       run: |
