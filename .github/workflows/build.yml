@@ -1,0 +1,38 @@
+name: Build TikTokMuteAudio
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Theos
+        run: |
+          git clone --depth=1 https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+          brew install ldid
+          git clone --depth=1 https://github.com/theos/sdks.git /tmp/sdks
+          mkdir -p "$GITHUB_WORKSPACE/theos/sdks"
+          cp -R /tmp/sdks/iPhoneOS16.5.sdk "$GITHUB_WORKSPACE/theos/sdks/"
+
+      - name: Build
+        run: |
+          export THEOS="$GITHUB_WORKSPACE/theos"
+          make clean package FINALPACKAGE=1
+
+      - name: Verify package
+        run: |
+          ls -lh packages/
+          test -n "$(find packages -name '*.deb' -print -quit)"
+
+      - name: Upload package
+        uses: actions/upload-artifact@v4
+        with:
+          name: TikTokMuteAudio-build
+          path: packages/*.deb
