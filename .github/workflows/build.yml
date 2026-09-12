@@ -14,12 +14,13 @@ jobs:
 
       - name: Install Theos
         run: |
-          git clone --depth=1 https://github.com/theos/theos.git $GITHUB_WORKSPACE/theos
-          echo "THEOS=$GITHUB_WORKSPACE/theos" >> $GITHUB_ENV
+          git clone --depth=1 --recurse-submodules https://github.com/theos/theos.git "$GITHUB_WORKSPACE/theos"
+          echo "THEOS=$GITHUB_WORKSPACE/theos" >> "$GITHUB_ENV"
           brew install ldid
           git clone --depth=1 https://github.com/theos/sdks.git /tmp/sdks
           mkdir -p "$GITHUB_WORKSPACE/theos/sdks"
           cp -R /tmp/sdks/iPhoneOS16.5.sdk "$GITHUB_WORKSPACE/theos/sdks/"
+          test -x "$GITHUB_WORKSPACE/theos/bin/dm.pl"
 
       - name: Build
         run: |
