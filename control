@@ -1,0 +1,9 @@
+Package: com.wavytakahiro.tiktokmuteaudio
+Name: TikTokMuteAudio
+Version: 1.0.0
+Architecture: iphoneos-arm64
+Description: TikTok audio mute toggle tweak
+Maintainer: WavyKisuke
+Author: WavyKisuke
+Section: Tweaks
+Depends: firmware (>= 14.0)
