@@ -9,21 +9,33 @@ jobs:
   build:
     runs-on: macos-latest
     steps:
-    - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-    - name: Set up Theos and SDKs
-      run: |
-        git clone --recursive https://github.com/theos/theos.git ~/theos
-        git clone --depth 1 https://github.com/theos/sdks.git ~/theos/sdks
+      - name: Set up Theos and SDK
+        run: |
+          git clone --depth=1 --recurse-submodules https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+          brew install ldid
+          git clone --depth=1 https://github.com/theos/sdks.git "$RUNNER_TEMP/sdks"
+          mkdir -p "$HOME/theos/sdks"
+          cp -R "$RUNNER_TEMP/sdks/iPhoneOS16.5.sdk" "$HOME/theos/sdks/"
+          test -d "$HOME/theos/sdks/iPhoneOS16.5.sdk"
 
-    - name: Build Raw Tweak File
-      run: |
-        export THEOS=~/theos
-        # Run make to compile the raw binary files without making a deb package
-        make FINALPACKAGE=1
+      - name: Build Raw Tweak File
+        run: |
+          export THEOS="$HOME/theos"
+          make FINALPACKAGE=1
+          find .theos -name 'TikTokMuteAudio.dylib' -type f -print
 
-    - name: Upload Raw Tweak File
-      uses: actions/upload-artifact@v4
-      with:
-        name: TikTokMuteAudio-Sideload
-        path: .theos/obj/debug/TikTokMuteAudio.dylib
+      - name: Prepare Raw Tweak File
+        run: |
+          DYLIB=$(find .theos -name 'TikTokMuteAudio.dylib' -type f -print -quit)
+          test -n "$DYLIB"
+          mkdir -p dist
+          cp "$DYLIB" dist/TikTokMuteAudio.dylib
+
+      - name: Upload Raw Tweak File
+        uses: actions/upload-artifact@v4
+        with:
+          name: TikTokMuteAudio-Sideload
+          path: dist/TikTokMuteAudio.dylib
